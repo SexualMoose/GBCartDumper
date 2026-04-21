@@ -31,6 +31,7 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
         val saveFolder: Uri? = null,
         val saveFolderLabel: String = "No folder chosen",
         val cart: CartInfo? = null,
+        val workingMbc: Protocol.Mbc? = null,  // MBC that actually got CONFIG accepted in scan
         val busy: Boolean = false,
         val progressBytes: Long = 0,
         val progressTotal: Long = 0,
@@ -94,24 +95,25 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
                     io.configure(_ui.value.baud)
                     val flasher = GBFlasher(io, ::appendLog)
                     appendLog("Querying cartridge (STATUS)...")
-                    val status = flasher.readStatus(_ui.value.mbc.code)
-                    appendLog(
-                        "Flasher → name=\"${status.gameName}\" type=0x${"%02X".format(status.cartType)} " +
-                            "ROM=0x${"%02X".format(status.romSizeCode)} RAM=0x${"%02X".format(status.ramSizeCode)} " +
-                            "mfr=0x${"%02X".format(status.manufacturerId)} chip=0x${"%02X".format(status.chipId)}"
-                    )
-
-                    if (status.gameName.isBlank() && status.cartType == 0 && status.romSizeCode == 0) {
-                        appendLog("⚠ Flasher couldn't read the cart. Likely causes: cart not seated, dirty pins, or weak USB-C power. Reseat the cart and try again.")
-                        _ui.update { it.copy(busy = false) }
-                        return@launch
+                    val status = try {
+                        flasher.readStatus(_ui.value.mbc.code)
+                    } catch (t: Throwable) {
+                        appendLog("STATUS failed (${t.message}) — continuing with direct bank-0 read.")
+                        null
+                    }
+                    if (status != null) {
+                        appendLog(
+                            "STATUS → name=\"${status.gameName}\" type=0x${"%02X".format(status.cartType)} " +
+                                "ROM=0x${"%02X".format(status.romSizeCode)} RAM=0x${"%02X".format(status.ramSizeCode)}"
+                        )
                     }
 
-                    // Grab bank 0 (32 KiB) to confirm the cart header and pick an accurate MBC.
+                    // STATUS is unreliable on plain MASKROM carts — the firmware's flash-ID
+                    // probe fails and the header fields come back as zeros even though the
+                    // cart bus is fine. Source of truth is a direct bank-0 read and the
+                    // cart's own header bytes.
                     appendLog("Reading bank 0 to parse header...")
-                    val bank0 = flasher.readRom(_ui.value.mbc.code, romBanks = 2) { read, total ->
-                        _ui.update { it.copy(progressBytes = read.toLong(), progressTotal = total.toLong()) }
-                    }
+                    val bank0 = readBank0WithFallback(flasher)
                     val header = CartHeader.parse(bank0)
                     val info = UiState.CartInfo(
                         title = header.title.ifBlank { "(untitled)" },
@@ -153,7 +155,15 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
-        val mbcToUse = if (_ui.value.mbc == Protocol.Mbc.Auto) info.mbc else _ui.value.mbc
+        // Preference order: user's explicit choice > the MBC that got accepted during
+        // scan > whatever the cart header says > AUTO. This matters on MASKROM carts
+        // where the firmware rejects AUTO and our header-derived MBC is the truth.
+        val mbcToUse = when {
+            _ui.value.mbc != Protocol.Mbc.Auto -> _ui.value.mbc
+            _ui.value.workingMbc != null -> _ui.value.workingMbc!!
+            info.mbc != Protocol.Mbc.Auto -> info.mbc
+            else -> Protocol.Mbc.RomOnly
+        }
         val banks = info.romBytes / Protocol.PAGE_SIZE
 
         currentJob = viewModelScope.launch {
@@ -177,6 +187,37 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.update { it.copy(busy = false) }
             }
         }
+    }
+
+    /**
+     * Read the first two 16 KiB banks (ROM address 0x0000..0x7FFF) using whichever
+     * MBC the firmware accepts. Tries the UI-selected MBC first; if that NAKs, falls
+     * back through ROMONLY, MBC1, MBC3, MBC5. Bank 0 is always the same across all
+     * MBCs so the resulting bytes are identical.
+     */
+    private suspend fun readBank0WithFallback(flasher: GBFlasher): ByteArray {
+        val attempts = buildList {
+            add(_ui.value.mbc)
+            for (m in listOf(Protocol.Mbc.RomOnly, Protocol.Mbc.Mbc1, Protocol.Mbc.Mbc3, Protocol.Mbc.Mbc5)) {
+                if (m !in this) add(m)
+            }
+        }
+        var lastError: Throwable? = null
+        for (mbc in attempts) {
+            try {
+                appendLog("Trying MBC=${mbc.label} ...")
+                val bytes = flasher.readRom(mbc.code, romBanks = 2) { read, total ->
+                    _ui.update { it.copy(progressBytes = read.toLong(), progressTotal = total.toLong()) }
+                }
+                _ui.update { it.copy(workingMbc = mbc) }
+                appendLog("  MBC=${mbc.label} accepted.")
+                return bytes
+            } catch (t: Throwable) {
+                lastError = t
+                appendLog("  MBC=${mbc.label} failed: ${t.message}")
+            }
+        }
+        throw lastError ?: IllegalStateException("No MBC worked")
     }
 
     private fun buildFilename(title: String, ext: String): String {
