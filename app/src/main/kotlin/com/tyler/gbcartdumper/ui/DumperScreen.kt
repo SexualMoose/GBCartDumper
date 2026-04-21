@@ -61,6 +61,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -137,8 +139,28 @@ fun DumperScreen(
             DeviceStatusCard(
                 connected = state.deviceConnected,
                 label = state.deviceLabel,
+                autoDetectStatus = state.autoDetectStatus,
                 onRefresh = shuffled(viewModel::refreshDevicePresence)
             )
+
+            if (state.deviceConnected) {
+                Button(
+                    onClick = shuffled { viewModel.autoDetect(onNeedUsbPermission) },
+                    enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                ) {
+                    Icon(Icons.Filled.AutoFixHigh, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when (state.autoDetectStatus) {
+                            is DumperViewModel.UiState.AutoDetectStatus.Succeeded -> "Re-run auto-detect"
+                            DumperViewModel.UiState.AutoDetectStatus.Running -> "Detecting…"
+                            else -> "Auto-detect baud + MBC"
+                        }
+                    )
+                }
+            }
 
             SettingsCard(
                 baud = state.baud,
@@ -162,10 +184,8 @@ fun DumperScreen(
                 busy = state.busy,
                 canScan = state.deviceConnected,
                 canDump = state.deviceConnected && state.cart != null && state.saveFolder != null,
-                autoDetectDone = state.autoDetectDone,
                 onScan = shuffled { viewModel.scanCart(onNeedUsbPermission) },
                 onDump = shuffled { viewModel.dumpRom(onNeedUsbPermission) },
-                onForceAutoDetect = shuffled(viewModel::forceAutoDetect),
                 onCancel = shuffled(viewModel::cancel),
             )
 
@@ -238,36 +258,73 @@ private fun DuplicatePromptDialog(
 }
 
 @Composable
-private fun DeviceStatusCard(connected: Boolean, label: String, onRefresh: () -> Unit) {
+private fun DeviceStatusCard(
+    connected: Boolean,
+    label: String,
+    autoDetectStatus: DumperViewModel.UiState.AutoDetectStatus,
+    onRefresh: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(18.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(if (connected) MaterialTheme.colorScheme.primary else Color(0xFF555B66))
-            )
-            Spacer(Modifier.width(12.dp))
-            Icon(Icons.Filled.Usb, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (connected) "Flasher attached" else "No flasher",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(if (connected) MaterialTheme.colorScheme.primary else Color(0xFF555B66))
                 )
-                Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Icon(Icons.Filled.Usb, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (connected) "Flasher attached" else "No flasher",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                FilledTonalButton(onClick = onRefresh) { Text("Rescan") }
             }
-            FilledTonalButton(onClick = onRefresh) { Text("Rescan") }
+            when (val s = autoDetectStatus) {
+                DumperViewModel.UiState.AutoDetectStatus.NotRun -> Unit
+                DumperViewModel.UiState.AutoDetectStatus.Running -> {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.AutoFixHigh, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Auto-detect running…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                is DumperViewModel.UiState.AutoDetectStatus.Succeeded -> {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Detected · ${s.baud} baud · ${s.mbc.label}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                is DumperViewModel.UiState.AutoDetectStatus.Failed -> {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Auto-detect failed — set baud & MBC manually",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -293,22 +350,35 @@ private fun SettingsCard(
         ) {
             Text("Settings", style = MaterialTheme.typography.titleMedium)
 
-            Text(
-                "Baud rate — must match the PCB jumper on the flasher. Factory default is 185 000 (both jumper pads open).",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    125_000 to "E0↔E1",
-                    185_000 to "default",
-                    375_000 to "E2↔E1",
-                ).forEach { (option, hint) ->
-                    FilterChip(
-                        selected = baud == option,
-                        onClick = { onBaudChange(option) },
-                        label = { Text("$option\n$hint", textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                    )
+            var baudMenuOpen by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = baudMenuOpen,
+                onExpandedChange = { baudMenuOpen = it },
+            ) {
+                OutlinedTextField(
+                    readOnly = true,
+                    value = "$baud baud",
+                    onValueChange = {},
+                    label = { Text("Baud rate") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = baudMenuOpen) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = baudMenuOpen,
+                    onDismissRequest = { baudMenuOpen = false },
+                ) {
+                    // Top 8 rates most flash-cart readers / dumpers support, fastest first.
+                    listOf(1_000_000, 921_600, 460_800, 375_000, 230_400, 185_000, 125_000, 115_200).forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text("$option baud") },
+                            onClick = {
+                                onBaudChange(option)
+                                baudMenuOpen = false
+                            }
+                        )
+                    }
                 }
             }
 
@@ -450,53 +520,37 @@ private fun ActionRow(
     busy: Boolean,
     canScan: Boolean,
     canDump: Boolean,
-    autoDetectDone: Boolean,
     onScan: () -> Unit,
     onDump: () -> Unit,
-    onForceAutoDetect: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Column(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            FilledTonalButton(
-                onClick = onScan,
-                enabled = !busy && canScan,
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(Icons.Filled.Search, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Scan cart")
-            }
-            Button(
-                onClick = onDump,
-                enabled = !busy && canDump,
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Dump ROM")
-            }
-            if (busy) {
-                FilledTonalButton(onClick = onCancel) {
-                    Icon(Icons.Filled.Close, contentDescription = null)
-                }
-            }
-        }
-        OutlinedButton(
-            onClick = onForceAutoDetect,
+        FilledTonalButton(
+            onClick = onScan,
             enabled = !busy && canScan,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.weight(1f),
         ) {
-            Icon(Icons.Filled.AutoFixHigh, contentDescription = null)
+            Icon(Icons.Filled.Search, contentDescription = null)
             Spacer(Modifier.width(8.dp))
-            Text(if (autoDetectDone) "Re-run auto-detect" else "Auto-detect on next scan")
+            Text("Scan cart")
+        }
+        Button(
+            onClick = onDump,
+            enabled = !busy && canDump,
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        ) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Dump ROM")
+        }
+        if (busy) {
+            FilledTonalButton(onClick = onCancel) {
+                Icon(Icons.Filled.Close, contentDescription = null)
+            }
         }
     }
 }
