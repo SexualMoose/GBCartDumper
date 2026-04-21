@@ -27,6 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
@@ -38,6 +40,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -64,8 +67,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.widget.Toast
 import com.tyler.gbcartdumper.flasher.Protocol
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,6 +83,8 @@ fun DumperScreen(
     onFolderPicked: (Uri) -> Unit,
 ) {
     val state by viewModel.ui.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -139,7 +148,15 @@ fun DumperScreen(
                 LastDumpCard(state.lastDumpName!!)
             }
 
-            LogCard(state.log)
+            LogCard(
+                lines = state.log,
+                onCopy = {
+                    val text = viewModel.logAsText()
+                    clipboard.setText(AnnotatedString(text))
+                    Toast.makeText(context, "Log copied (${state.log.size} lines)", Toast.LENGTH_SHORT).show()
+                },
+                onClear = viewModel::clearLog,
+            )
         }
     }
 }
@@ -378,14 +395,32 @@ private fun LastDumpCard(filename: String) {
 }
 
 @Composable
-private fun LogCard(lines: List<String>) {
+private fun LogCard(lines: List<String>, onCopy: () -> Unit, onClear: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(18.dp)
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text("Log", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Log", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = onCopy, enabled = lines.isNotEmpty()) {
+                    Icon(
+                        Icons.Filled.ContentCopy,
+                        contentDescription = "Copy log",
+                        tint = if (lines.isNotEmpty()) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onClear, enabled = lines.isNotEmpty()) {
+                    Icon(
+                        Icons.Filled.DeleteSweep,
+                        contentDescription = "Clear log",
+                        tint = if (lines.isNotEmpty()) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Spacer(Modifier.height(6.dp))
             Surface(
                 color = Color.Transparent,

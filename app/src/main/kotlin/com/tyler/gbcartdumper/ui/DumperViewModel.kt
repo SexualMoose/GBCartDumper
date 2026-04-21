@@ -77,6 +77,10 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(busy = false) }
     }
 
+    fun clearLog() = _ui.update { it.copy(log = emptyList()) }
+
+    fun logAsText(): String = _ui.value.log.joinToString("\n")
+
     fun scanCart(onNeedPermission: (UsbDevice) -> Unit) {
         val ctx = getApplication<Application>()
         val device = FtdiTransport.findDevice(ctx) ?: run {
