@@ -20,8 +20,21 @@ class FtdiTransport private constructor(private val port: UsbSerialPort) : AutoC
     /** Apply 8N1 + flow-off + the chosen baud + a short latency timer (matches host libftdi path). */
     fun configure(baud: Int) {
         port.setParameters(baud, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
-        runCatching { port.setDTR(true) }
-        runCatching { port.setRTS(true) }
+        // Do NOT assert DTR/RTS — on the rev.c flasher those lines are commonly wired
+        // to the ATmega's RESET pin, so asserting them would hold the MCU in reset
+        // and we'd never see any bytes on the wire.
+        runCatching { port.setDTR(false) }
+        runCatching { port.setRTS(false) }
+        // Match the host tool: shrink the FT232 latency timer from its 16ms default
+        // to 2ms so small (< 62-byte) responses aren't buffered by the chip.
+        runCatching {
+            // FtdiSerialPort is an inner class of FtdiSerialDriver — reach the
+            // `setLatencyTimer(int)` method reflectively so we don't pull the
+            // inner-class reference into a stable import.
+            val m = port.javaClass.getMethod("setLatencyTimer", Int::class.javaPrimitiveType)
+            m.invoke(port, 2)
+        }
+        runCatching { port.purgeHwBuffers(true, true) }
     }
 
     fun writeByte(b: Byte) = write(byteArrayOf(b))
