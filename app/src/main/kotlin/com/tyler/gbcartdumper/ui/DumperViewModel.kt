@@ -30,7 +30,7 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
         val deviceLabel: String = "No flasher detected",
         val deviceSerial: String = "",
         val baud: Int = 185_000,
-        val mbc: Protocol.Mbc = Protocol.Mbc.Auto,
+        val mbc: Protocol.Mbc = Protocol.Mbc.RomOnly,
         val userOverrodeBaud: Boolean = false,
         val userOverrodeMbc: Boolean = false,
         val autoDetectDone: Boolean = false,
@@ -223,7 +223,8 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
         ctx: Context,
         device: UsbDevice,
     ): Pair<Int, Protocol.Mbc> {
-        val bauds = listOf(1_000_000, 921_600, 460_800, 375_000, 230_400, 185_000, 125_000, 115_200)
+        // Same four rates the UI dropdown offers, fastest first.
+        val bauds = listOf(375_000, 187_500, 185_000, 125_000)
         val mbcs = listOf(
             Protocol.Mbc.RomOnly, Protocol.Mbc.Mbc1, Protocol.Mbc.Mbc5,
             Protocol.Mbc.Mbc3, Protocol.Mbc.Mbc2, Protocol.Mbc.Rumble,

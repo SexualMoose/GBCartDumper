@@ -1,30 +1,22 @@
 <!--
   Launcher-icon foreground.
 
-  True-to-spec silhouette of a Nintendo DMG Game Boy cartridge in top-down view.
-  Real shell dimensions: 57 mm × 65.5 mm with a ~14 mm 45° chamfer cut out of
-  the top-right corner (≈ 24.5% of the cart's width).
+  Minimalist "classic save-icon floppy disk dissolving into data".
+  Upper two-thirds is a clean floppy silhouette with its trademark shutter
+  chamfer; the lower third is the floppy's data cascading off the bottom
+  edge as matrix-style falling bits (a tapering 3dp-pixel grid).
 
-  Scaled to fit Android's 66 dp adaptive-icon safe zone within the 108 dp
-  viewport. At 52 × 60 dp the silhouette sits well clear of the launcher mask
-  whether the shell is circle / squircle / rounded-square / teardrop.
+  Layout (108 dp viewport, 66 dp adaptive-icon safe zone = y 21..87):
+    Floppy body      :  x 28..80, y 24..60     (52 × 36, centred)
+    Shutter inset    :  x 34..66, y 24..33
+    Label inset      :  x 34..74, y 42..56
+    Matrix pixels    :  y 62..83, 4 rows of 3 dp squares, thinning downward
 
-    Safe-zone origin : (21, 21)  → (87, 87)         (66 dp square)
-    Cart origin      : (28, 24)  → (80, 84)         (52 × 60 dp, centred)
-    Chamfer          : 13 dp cut along top + right edges from (80, 24)
+  Even buffer inside the safe zone:
+    top 3 dp · bottom 4 dp · left 7 dp · right 7 dp
 
-  Body:                   Nintendo Game Boy green (#9CCC65)
-  Paper label inset:      window into the background for recognisability
-  Label text lines:       three green bars to read as "printed label"
-
-  Design notes for adaptive-icon guidelines:
-    - Solid foreground shape, no background fill (the background is its own
-      layer).
-    - All meaningful content inside the 66 dp safe zone.
-    - Strokes avoided — adaptive icons get baked at multiple densities and
-      scaling strokes tend to look inconsistent.
-    - Monochrome themed-icon variant points at this same drawable; the single
-      silhouette flattens cleanly to one colour when the OS tints it.
+  Two colours only (green + dark-surface cutouts) so the OS's monochrome
+  themed-icon pass collapses cleanly to a single tint.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -32,31 +24,41 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Shell outline: rectangle with the trademark top-right 45° chamfer. -->
+    <!-- Floppy body silhouette with the shutter-corner chamfer on top-right. -->
     <path
         android:fillColor="#9CCC65"
-        android:pathData="M 28,24 L 67,24 L 80,37 L 80,84 L 28,84 Z" />
+        android:pathData="M 28,24 L 74,24 L 80,30 L 80,60 L 28,60 Z" />
 
-    <!-- Paper label inset (top half of the cart, clear of the chamfer). -->
+    <!-- Metal shutter: dark inset across the top of the body. -->
     <path
         android:fillColor="#0B0E13"
-        android:pathData="M 34,40 L 74,40 L 74,62 L 34,62 Z" />
+        android:pathData="M 34,24 L 66,24 L 66,33 L 34,33 Z" />
 
-    <!-- Three horizontal 'text' bars on the label. -->
+    <!-- Paper label: dark inset panel in the middle of the body. -->
+    <path
+        android:fillColor="#0B0E13"
+        android:pathData="M 34,42 L 74,42 L 74,56 L 34,56 Z" />
+
+    <!-- Matrix dissolve — four rows of 3 dp pixels tapering downward, so the
+         floppy's contents read as "falling into a bit-stream". -->
     <path
         android:fillColor="#9CCC65"
         android:pathData="
-            M 37,44 L 71,44 L 71,47 L 37,47 Z
-            M 37,50 L 64,50 L 64,53 L 37,53 Z
-            M 37,56 L 67,56 L 67,59 L 37,59 Z" />
-
-    <!-- Finger-grip ridges on the lower third (a defining cart detail). -->
-    <path
-        android:fillColor="#0B0E13"
-        android:pathData="
-            M 36,70 L 41,70 L 41,79 L 36,79 Z
-            M 44,70 L 49,70 L 49,79 L 44,79 Z
-            M 52,70 L 57,70 L 57,79 L 52,79 Z
-            M 60,70 L 65,70 L 65,79 L 60,79 Z
-            M 68,70 L 73,70 L 73,79 L 68,79 Z" />
+            M 30,62 h3 v3 h-3 z
+            M 40,62 h3 v3 h-3 z
+            M 52,62 h3 v3 h-3 z
+            M 64,62 h3 v3 h-3 z
+            M 74,62 h3 v3 h-3 z
+            M 28,68 h3 v3 h-3 z
+            M 38,68 h3 v3 h-3 z
+            M 50,68 h3 v3 h-3 z
+            M 62,68 h3 v3 h-3 z
+            M 72,68 h3 v3 h-3 z
+            M 34,74 h3 v3 h-3 z
+            M 46,74 h3 v3 h-3 z
+            M 58,74 h3 v3 h-3 z
+            M 70,74 h3 v3 h-3 z
+            M 40,80 h3 v3 h-3 z
+            M 54,80 h3 v3 h-3 z
+            M 66,80 h3 v3 h-3 z" />
 </vector>

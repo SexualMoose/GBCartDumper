@@ -369,8 +369,10 @@ private fun SettingsCard(
                     expanded = baudMenuOpen,
                     onDismissRequest = { baudMenuOpen = false },
                 ) {
-                    // Top 8 rates most flash-cart readers / dumpers support, fastest first.
-                    listOf(1_000_000, 921_600, 460_800, 375_000, 230_400, 185_000, 125_000, 115_200).forEach { option ->
+                    // The four baud rates jrodrigo rev.c firmware actually supports,
+                    // fastest first. 185000 and 187500 map to the same FT232R wire
+                    // rate; we keep both so "185000" host labels still work.
+                    listOf(375_000, 187_500, 185_000, 125_000).forEach { option ->
                         DropdownMenuItem(
                             text = { Text("$option baud") },
                             onClick = {
@@ -401,15 +403,19 @@ private fun SettingsCard(
                     expanded = mbcMenuOpen,
                     onDismissRequest = { mbcMenuOpen = false },
                 ) {
-                    Protocol.Mbc.entries.forEach { entry ->
-                        DropdownMenuItem(
-                            text = { Text(entry.label) },
-                            onClick = {
-                                onMbcChange(entry)
-                                mbcMenuOpen = false
-                            }
-                        )
-                    }
+                    // Hide the AUTO sentinel from the user-facing picker —
+                    // auto-detect is now a top-level action button.
+                    Protocol.Mbc.entries
+                        .filter { it != Protocol.Mbc.Auto }
+                        .forEach { entry ->
+                            DropdownMenuItem(
+                                text = { Text(entry.label) },
+                                onClick = {
+                                    onMbcChange(entry)
+                                    mbcMenuOpen = false
+                                }
+                            )
+                        }
                 }
             }
 
