@@ -19,14 +19,13 @@ object Protocol {
     const val BYTE_NAK: Byte = 0xF0.toByte()
     const val BYTE_END: Byte = 0x0F.toByte()
 
-    // Sub-command (packet[1]) for host-originated packets.
-    const val CMD_CONFIG: Byte = 0x01
-    const val CMD_ERASE: Byte = 0x02
-    const val CMD_STATUS: Byte = 0x03
-
-    // Sub-command (packet[1]) for device-originated data packets.
-    const val DATA_NORMAL: Byte = 0x00
+    // Sub-command (packet[1]). Values come straight from the original rev.c
+    // firmware / Nold360 const.h "Packet Types" enum.
+    const val CMD_CONFIG: Byte = 0x00
+    const val DATA_NORMAL: Byte = 0x01
     const val DATA_LAST: Byte = 0x02
+    const val CMD_ERASE: Byte = 0x03
+    const val CMD_STATUS: Byte = 0x04
 
     // Operation (packet[2]) inside a CONFIG packet.
     const val OP_RROM: Byte = 0x00

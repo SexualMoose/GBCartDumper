@@ -19,16 +19,20 @@ import java.io.IOException
  *
  * Wire layout of every 72-byte packet:
  *   [0]     = DATA marker (0x55)
- *   [1]     = sub-command / data-type
- *   [2..69] = 68 bytes of payload (exact meaning per sub-command)
+ *   [1]     = sub-command (CONFIG=0x00, DATA_NORMAL=0x01, DATA_LAST=0x02, ERASE=0x03, STATUS=0x04)
+ *   [2..69] = 68 bytes of payload
  *   [70]    = CRC-16 high byte
  *   [71]    = CRC-16 low byte
  *
- * Handshakes going the opposite direction are single bytes: ACK (0xAA), NAK (0xF0), END (0x0F).
+ * Flow (STATUS, CONFIG+RROM):
+ *   1. Host sends full 72-byte request packet.
+ *   2. Device either replies with NAK (0xF0) on bad CRC — host retries — or with a
+ *      full 72-byte DATA packet.
+ *   3. Host validates CRC on the response; sends ACK (0xAA) if good, NAK (0xF0) to
+ *      request a retransmit. Final data packet is marked DATA_LAST=0x02.
  */
 class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit = {}) {
 
-    /** Result of a STATUS query — the firmware's best-effort cart ID. */
     data class Status(
         val manufacturerId: Int,
         val chipId: Int,
@@ -39,18 +43,14 @@ class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit
         val raw: ByteArray
     )
 
-    /** Ask the flasher to probe the inserted cart. MBC can be AUTO here. */
     suspend fun readStatus(mbc: Byte = Protocol.MBC_AUTO): Status = withContext(Dispatchers.IO) {
         io.flushInput()
         val req = buildPacket(CMD_STATUS) {
-            it[2] = 0                 // id (unused on request)
+            it[2] = 0
             it[3] = mbc
             it[4] = Protocol.ALG_16
         }
-        sendPacketWithRetry(req, label = "STATUS")
-        val resp = receivePacket()
-        // Device expects a single-byte ACK for the status response.
-        io.writeByte(BYTE_ACK)
+        val resp = sendCommandGetResponse(req, label = "STATUS")
 
         val name = buildString {
             for (i in 9 until 9 + 16) {
@@ -72,10 +72,11 @@ class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit
     }
 
     /**
-     * Dump the cart's ROM. Emits progress (bytesRead, totalBytes) via [onProgress].
+     * Stream the cart's ROM. Emits progress (bytesRead, totalBytes) via [onProgress].
      *
-     * [romBanks] is the number of 16 KiB pages to request (derived from the cart header).
-     * The firmware will stream `PACKETS_PER_PAGE * romBanks` data packets; we ACK each one.
+     * [romBanks] is the number of 16 KiB pages to request (from the cart header).
+     * The firmware streams exactly `PACKETS_PER_PAGE * romBanks` data packets and
+     * we ACK each one.
      */
     suspend fun readRom(
         mbc: Byte,
@@ -91,32 +92,36 @@ class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit
             it[2] = OP_RROM
             it[3] = mbc
             it[4] = Protocol.ALG_16
-            it[5] = 0  // dap (doubled-address-pin; only relevant for MBC5-rumble flash writes)
+            it[5] = 0
             val pagesMinusOne = romBanks - 1
             it[6] = ((pagesMinusOne ushr 8) and 0xFF).toByte()
             it[7] = (pagesMinusOne and 0xFF).toByte()
         }
-        sendPacketWithRetry(cfg, label = "CONFIG RROM")
 
+        // The first DATA packet from the device is both "I accept CONFIG" and
+        // the first frame — no separate ACK in between.
+        var first = sendCommandGetResponse(cfg, label = "CONFIG RROM")
         var received = 0
-        var expectedPktNumByte: Int = 0   // firmware pkt_num wraps 0..255 inside a page
-        var sawLast = false
+        var sawLast = first[1] == DATA_LAST
+        System.arraycopy(first, 6, out, received, FRAME_SIZE)
+        received += FRAME_SIZE
+        onProgress(received, total)
+
+        var expectedPktNumByte = (first[3].toInt() + 1) and 0xFF
+
         while (received < total && !sawLast) {
             val pkt = try {
-                receivePacket()
+                receiveDataPacket()
             } catch (e: IOException) {
-                io.writeByte(BYTE_NAK)
                 throw e
             }
-
             val dataType = pkt[1]
             val pktNum = pkt[3].toInt() and 0xFF
 
-            // Duplicate detection: firmware may re-send when its ACK was missed.
-            if (received > 0 && pktNum != expectedPktNumByte) {
-                // Off-by-one: accept prev-slot retransmission silently, re-ACK.
+            if (pktNum != expectedPktNumByte) {
                 val prev = (expectedPktNumByte - 1) and 0xFF
                 if (pktNum == prev) {
+                    // Firmware re-sent the previous frame because it didn't see our ACK.
                     io.writeByte(BYTE_ACK)
                     continue
                 }
@@ -152,47 +157,74 @@ class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit
         return p
     }
 
-    private suspend fun sendPacketWithRetry(packet: ByteArray, label: String) {
+    /**
+     * Send [packet] and read back whatever the flasher returns. The rev.c firmware
+     * replies to a well-formed STATUS/CONFIG with a full DATA packet (not a bare ACK).
+     * On bad CRC it replies NAK, on operator abort it replies END.
+     * Sends ACK back on a valid reply, NAK to request re-send, and returns the packet.
+     */
+    private suspend fun sendCommandGetResponse(packet: ByteArray, label: String): ByteArray {
         var tries = 0
         while (true) {
             io.write(packet)
-            val reply = io.readExact(1, deadlineMs = 3000)[0]
-            when (reply) {
-                BYTE_ACK -> return
+            val first = io.readExact(1)[0]
+            when (first) {
+                BYTE_DATA -> {
+                    val pkt = completeDataPacket()
+                    if (pkt == null) {
+                        io.writeByte(BYTE_NAK)
+                        tries++
+                        if (tries >= 10) throw IOException("$label: CRC on response failed 10×")
+                        log("$label: bad CRC on response, retrying ($tries)")
+                    } else {
+                        io.writeByte(BYTE_ACK)
+                        return pkt
+                    }
+                }
                 BYTE_NAK -> {
                     tries++
-                    if (tries >= 10) throw IOException("$label rejected 10× by flasher (check cart seating / baud)")
-                    log("$label NAK — retry $tries")
+                    if (tries >= 10) throw IOException("$label: flasher NAK'd 10× (check baud / cart seated?)")
+                    log("$label: flasher NAK — retry $tries")
                 }
-                BYTE_END -> throw IOException("$label aborted by flasher (END)")
-                else -> throw IOException("$label got unexpected reply 0x${"%02X".format(reply.toInt() and 0xFF)}")
+                BYTE_END -> throw IOException("$label: flasher sent END")
+                else -> throw IOException("$label got unexpected reply 0x${"%02X".format(first.toInt() and 0xFF)}")
+            }
+        }
+    }
+
+    /** Read the next DATA packet from the stream (without sending our own command first). */
+    private suspend fun receiveDataPacket(): ByteArray {
+        while (true) {
+            val first = io.readExact(1)[0]
+            when (first) {
+                BYTE_DATA -> {
+                    val pkt = completeDataPacket()
+                    if (pkt == null) {
+                        io.writeByte(BYTE_NAK)
+                    } else {
+                        return pkt
+                    }
+                }
+                BYTE_NAK -> continue          // stray; ignore
+                BYTE_ACK -> continue          // stray; ignore
+                BYTE_END -> throw IOException("Flasher sent END mid-stream")
+                else -> continue              // resync — skip stray bytes
             }
         }
     }
 
     /**
-     * Resync-on-garbage receive: scan forward until the DATA marker appears,
-     * then pull the remaining 71 bytes and verify the CRC.
+     * Assumes we just read the leading 0x55 DATA marker. Pulls the remaining 71 bytes,
+     * returns the full packet if CRC matches, null otherwise.
      */
-    private suspend fun receivePacket(): ByteArray {
-        // Scan for the leading DATA byte (up to PACKET_SIZE of slop).
-        var probe = io.readExact(1)
-        var scanned = 0
-        while (probe[0] != BYTE_DATA) {
-            scanned++
-            if (scanned > PACKET_SIZE) throw IOException("No DATA marker in stream")
-            probe = io.readExact(1)
-        }
+    private suspend fun completeDataPacket(): ByteArray? {
         val rest = io.readExact(PACKET_SIZE - 1)
-        val packet = ByteArray(PACKET_SIZE)
-        packet[0] = BYTE_DATA
-        System.arraycopy(rest, 0, packet, 1, PACKET_SIZE - 1)
-
-        val expected = ((packet[PACKET_SIZE - 2].toInt() and 0xFF) shl 8) or (packet[PACKET_SIZE - 1].toInt() and 0xFF)
-        val actual = Crc16.compute(packet, PACKET_SIZE - 2)
-        if (expected != actual) {
-            throw IOException("CRC mismatch (want 0x${"%04X".format(expected)}, got 0x${"%04X".format(actual)})")
-        }
-        return packet
+        val pkt = ByteArray(PACKET_SIZE)
+        pkt[0] = BYTE_DATA
+        System.arraycopy(rest, 0, pkt, 1, PACKET_SIZE - 1)
+        val expected = ((pkt[PACKET_SIZE - 2].toInt() and 0xFF) shl 8) or
+            (pkt[PACKET_SIZE - 1].toInt() and 0xFF)
+        val actual = Crc16.compute(pkt, PACKET_SIZE - 2)
+        return if (expected == actual) pkt else null
     }
 }
