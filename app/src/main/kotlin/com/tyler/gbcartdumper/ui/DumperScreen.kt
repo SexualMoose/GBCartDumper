@@ -293,13 +293,21 @@ private fun SettingsCard(
         ) {
             Text("Settings", style = MaterialTheme.typography.titleMedium)
 
-            Text("Baud rate (match rev.c jumper)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Baud rate — must match the PCB jumper on the flasher. Factory default is 185 000 (both jumper pads open).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(125_000, 185_000, 187_500, 375_000).forEach { option ->
+                listOf(
+                    125_000 to "E0↔E1",
+                    185_000 to "default",
+                    375_000 to "E2↔E1",
+                ).forEach { (option, hint) ->
                     FilterChip(
                         selected = baud == option,
                         onClick = { onBaudChange(option) },
-                        label = { Text(option.toString()) }
+                        label = { Text("$option\n$hint", textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                     )
                 }
             }

@@ -280,41 +280,57 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
     // --- auto-detect --------------------------------------------------------
 
     /**
-     * Yield bank 0 (32 KiB). If the app already has known-good settings for this
-     * flasher, opens once at that baud + MBC. Otherwise sweeps every baud × MBC
-     * combination until the Nintendo logo at 0x0104 appears verbatim, then saves
-     * the winning pair to prefs so next time we skip the sweep.
+     * Yield bank 0 (32 KiB).
+     *
+     * Fast path: user overrode the settings or we already have a remembered combo
+     * for this flasher — open once at those values and read.
+     *
+     * Slow path (auto-detect): sweep baud rates from fastest to slowest (375000 →
+     * 185000 → 125000) and within each baud try MBC types ordered by real-world
+     * frequency. We close and reopen the serial port between bauds and send an
+     * END (0x0F) byte on fresh open to try to unwind any half-consumed packet
+     * from a prior mismatch. First combo whose response contains a verbatim
+     * Nintendo logo at 0x0104 wins and is saved per-flasher-serial in prefs.
      */
     private suspend fun acquireBank0(ctx: Context, device: UsbDevice): ByteArray {
         val state = _ui.value
 
-        // Fast path: trust the user's manual choices or a remembered combo.
         if (state.userOverrodeBaud || state.userOverrodeMbc || state.autoDetectDone) {
-            appendLog("Reading bank 0 @ ${state.baud} baud · ${state.mbc.label} ...")
+            val preferred = state.mbc
+            appendLog("Reading bank 0 @ ${state.baud} baud · ${preferred.label} ...")
             return FtdiTransport.open(ctx, device).use { io ->
                 io.configure(state.baud)
                 val flasher = GBFlasher(io, ::appendLog)
-                readBank0WithMbcFallback(flasher, state.mbc)
+                readBank0WithMbcFallback(flasher, preferred)
             }
         }
 
-        // Slow path: sweep everything.
-        appendLog("Auto-detecting flasher settings — sweeping bauds × MBCs...")
-        val bauds = listOf(185_000, 187_500, 125_000, 375_000)
+        // Fastest-first — user's explicit preference. If the board's jumper is on
+        // the 375000 setting, this grabs it on the first try; otherwise we fall
+        // back through 185000 to 125000.
+        val bauds = listOf(375_000, 185_000, 125_000)
         val mbcs = listOf(
             Protocol.Mbc.RomOnly, Protocol.Mbc.Mbc1, Protocol.Mbc.Mbc5,
             Protocol.Mbc.Mbc3, Protocol.Mbc.Mbc2, Protocol.Mbc.Rumble,
         )
+
         for (baud in bauds) {
             _ui.update { it.copy(busyLabel = "Auto-detect $baud baud") }
+            appendLog("— Trying $baud baud —")
             try {
                 FtdiTransport.open(ctx, device).use { io ->
                     io.configure(baud)
+                    // Nudge any mid-packet firmware state machine back to idle.
+                    runCatching { io.writeByte(Protocol.BYTE_END) }
+                    kotlinx.coroutines.delay(300)
+                    io.flushInput()
                     val flasher = GBFlasher(io, ::appendLog)
                     for (mbc in mbcs) {
                         try {
-                            appendLog("  Try $baud baud · ${mbc.label} ...")
-                            val bank0 = flasher.readRom(mbc.code, romBanks = 2) { _, _ -> }
+                            appendLog("  · ${mbc.label} ...")
+                            val bank0 = flasher.readRom(mbc.code, romBanks = 2) { read, total ->
+                                _ui.update { it.copy(progressBytes = read.toLong(), progressTotal = total.toLong()) }
+                            }
                             if (CartHeader.hasValidNintendoLogo(bank0)) {
                                 appendLog("  ✓ $baud baud · ${mbc.label} — Nintendo logo verified.")
                                 _ui.update {
@@ -329,18 +345,24 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
                                 if (serial.isNotEmpty()) prefs.save(serial, baud, mbc)
                                 return bank0
                             } else {
-                                appendLog("  · $baud · ${mbc.label}: data received but logo mismatch.")
+                                appendLog("  · ${mbc.label}: data received but logo mismatch.")
                             }
                         } catch (t: Throwable) {
-                            // CONFIG NAK or CRC fail — move on.
+                            appendLog("  · ${mbc.label}: ${t.message}")
                         }
                     }
                 }
             } catch (t: Throwable) {
-                appendLog("  · $baud baud: port open failed (${t.message})")
+                appendLog("  · $baud baud: ${t.message}")
             }
+            // Give the firmware/FT232 a beat before the next baud's open.
+            kotlinx.coroutines.delay(500)
         }
-        throw IllegalStateException("Auto-detect failed — no combo produced a valid Nintendo logo. Cart may be damaged or not seated.")
+
+        throw IllegalStateException(
+            "Auto-detect tried 375k/185k/125k × every MBC and nothing returned a valid Nintendo logo. " +
+                "The flasher may be wedged — unplug and replug it. Also verify the cart is firmly seated."
+        )
     }
 
     /** Try user-selected MBC first, then the usual fallback chain. */

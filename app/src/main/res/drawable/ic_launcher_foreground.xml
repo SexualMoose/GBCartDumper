@@ -1,9 +1,30 @@
 <!--
-  Top-down silhouette of a classic DMG Game Boy cartridge:
-  rectangular body with the trademark notch cut from the top-right corner.
-  Adaptive-icon safe zone is the centred 66dp circle in a 108dp viewport;
-  the cart sits inside that so the launcher's circular/squircle mask
-  never clips it.
+  Launcher-icon foreground.
+
+  True-to-spec silhouette of a Nintendo DMG Game Boy cartridge in top-down view.
+  Real shell dimensions: 57 mm × 65.5 mm with a ~14 mm 45° chamfer cut out of
+  the top-right corner (≈ 24.5% of the cart's width).
+
+  Scaled to fit Android's 66 dp adaptive-icon safe zone within the 108 dp
+  viewport. At 52 × 60 dp the silhouette sits well clear of the launcher mask
+  whether the shell is circle / squircle / rounded-square / teardrop.
+
+    Safe-zone origin : (21, 21)  → (87, 87)         (66 dp square)
+    Cart origin      : (28, 24)  → (80, 84)         (52 × 60 dp, centred)
+    Chamfer          : 13 dp cut along top + right edges from (80, 24)
+
+  Body:                   Nintendo Game Boy green (#9CCC65)
+  Paper label inset:      window into the background for recognisability
+  Label text lines:       three green bars to read as "printed label"
+
+  Design notes for adaptive-icon guidelines:
+    - Solid foreground shape, no background fill (the background is its own
+      layer).
+    - All meaningful content inside the 66 dp safe zone.
+    - Strokes avoided — adaptive icons get baked at multiple densities and
+      scaling strokes tend to look inconsistent.
+    - Monochrome themed-icon variant points at this same drawable; the single
+      silhouette flattens cleanly to one colour when the OS tints it.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -11,52 +32,31 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Body of the cartridge. The top-right corner is notched: the outline
-         goes right along the top, steps down, steps right, then continues.
-         Coordinates chosen so the whole cart lives inside the 66dp safe zone
-         (x 21..87, y 21..87). -->
+    <!-- Shell outline: rectangle with the trademark top-right 45° chamfer. -->
+    <path
+        android:fillColor="#9CCC65"
+        android:pathData="M 28,24 L 67,24 L 80,37 L 80,84 L 28,84 Z" />
+
+    <!-- Paper label inset (top half of the cart, clear of the chamfer). -->
+    <path
+        android:fillColor="#0B0E13"
+        android:pathData="M 34,40 L 74,40 L 74,62 L 34,62 Z" />
+
+    <!-- Three horizontal 'text' bars on the label. -->
     <path
         android:fillColor="#9CCC65"
         android:pathData="
-            M 30,24
-            L 66,24
-            L 66,32
-            L 78,32
-            L 78,84
-            Q 78,88 74,88
-            L 34,88
-            Q 30,88 30,84
-            Z" />
+            M 37,44 L 71,44 L 71,47 L 37,47 Z
+            M 37,50 L 64,50 L 64,53 L 37,53 Z
+            M 37,56 L 67,56 L 67,59 L 37,59 Z" />
 
-    <!-- Paper label inset -->
+    <!-- Finger-grip ridges on the lower third (a defining cart detail). -->
     <path
         android:fillColor="#0B0E13"
         android:pathData="
-            M 37,40
-            L 71,40
-            Q 73,40 73,42
-            L 73,66
-            Q 73,68 71,68
-            L 37,68
-            Q 35,68 35,66
-            L 35,42
-            Q 35,40 37,40 Z" />
-
-    <!-- Three horizontal text lines on the label -->
-    <path
-        android:fillColor="#9CCC65"
-        android:pathData="
-            M 39,46 L 69,46 L 69,49 L 39,49 Z
-            M 39,52 L 63,52 L 63,55 L 39,55 Z
-            M 39,58 L 66,58 L 66,61 L 39,61 Z" />
-
-    <!-- Finger-grip ridges at the bottom (below the label) -->
-    <path
-        android:fillColor="#0B0E13"
-        android:pathData="
-            M 40,74 L 44,74 L 44,82 L 40,82 Z
-            M 47,74 L 51,74 L 51,82 L 47,82 Z
-            M 54,74 L 58,74 L 58,82 L 54,82 Z
-            M 61,74 L 65,74 L 65,82 L 61,82 Z
-            M 68,74 L 72,74 L 72,82 L 68,82 Z" />
+            M 36,70 L 41,70 L 41,79 L 36,79 Z
+            M 44,70 L 49,70 L 49,79 L 44,79 Z
+            M 52,70 L 57,70 L 57,79 L 52,79 Z
+            M 60,70 L 65,70 L 65,79 L 60,79 Z
+            M 68,70 L 73,70 L 73,79 L 68,79 Z" />
 </vector>

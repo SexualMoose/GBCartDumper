@@ -187,8 +187,9 @@ class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit
                     if (pkt == null) {
                         io.writeByte(BYTE_NAK)
                         tries++
-                        if (tries >= 10) throw IOException("$label: CRC on response failed 10×")
+                        if (tries >= 3) throw IOException("$label: CRC on response failed 3× — baud rate wrong?")
                         log("$label: bad CRC on response, retrying ($tries)")
+                        hardResetFirmwareState()
                     } else {
                         io.writeByte(BYTE_ACK)
                         return pkt
@@ -196,13 +197,34 @@ class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit
                 }
                 BYTE_NAK -> {
                     tries++
-                    if (tries >= 10) throw IOException("$label: flasher NAK'd 10× (check baud / cart seated?)")
-                    log("$label: flasher NAK — retry $tries")
+                    // The rev.c firmware wedges after one rejection — sending CONFIG again
+                    // without resetting its receive state makes NAKs permanent. Give up fast
+                    // (only 2 retries) and surface a clear message the UI can recover from.
+                    if (tries >= 2) {
+                        throw IOException(
+                            "$label: flasher NAK'd twice. Firmware is stuck — unplug and replug the flasher, then retry. " +
+                                "If it persists, the baud jumper may be wrong for this session."
+                        )
+                    }
+                    log("$label: flasher NAK — resetting state, retry $tries")
+                    hardResetFirmwareState()
                 }
                 BYTE_END -> throw IOException("$label: flasher sent END")
                 else -> throw IOException("$label got unexpected reply 0x${"%02X".format(first.toInt() and 0xFF)}")
             }
         }
+    }
+
+    /**
+     * The rev.c firmware has a receive state machine that can get stuck mid-packet
+     * after garbled input (wrong baud) or a mid-transaction abort. The firmware
+     * treats a single END (0x0F) byte as "abort whatever you were doing"; give it
+     * a beat after to finish unwinding before the next command.
+     */
+    private suspend fun hardResetFirmwareState() {
+        runCatching { io.writeByte(BYTE_END) }
+        kotlinx.coroutines.delay(400)
+        io.flushInput()
     }
 
     /** Read the next DATA packet from the stream (without sending our own command first). */
