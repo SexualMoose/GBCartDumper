@@ -215,29 +215,55 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Try 1000000 → 125000 baud × the usual MBC order and return the first combo
-     * whose bank-0 contains the canonical Nintendo logo. Between bauds, close +
-     * reopen the port and fire an END byte to unwind any wedged firmware state.
+     * Try every baud × MBC combination until one produces a bank-0 packet
+     * containing the canonical Nintendo logo at 0x0104.
+     *
+     * Order: start from the user's currently-selected baud (their dropdown
+     * pick is the most likely correct value — usually this returns on the
+     * first attempt), then fall through the remaining three rev.c-supported
+     * rates fastest-first.
+     *
+     * Recovery between bauds: close + reopen the port, let the firmware's
+     * receive state machine unwind for ~1.5s (much longer than the old 500 ms
+     * that wasn't enough on-device), then fire five END bytes so at least
+     * one survives the wrong-baud→right-baud framing transition, flush, retry.
      */
     private suspend fun sweepForWorkingCombo(
         ctx: Context,
         device: UsbDevice,
     ): Pair<Int, Protocol.Mbc> {
-        // Same four rates the UI dropdown offers, fastest first.
-        val bauds = listOf(375_000, 187_500, 185_000, 125_000)
+        val allBauds = listOf(375_000, 187_500, 185_000, 125_000)
+        val current = _ui.value.baud
+        // Put the current baud first, preserve the fastest-first order for the rest.
+        val bauds = buildList {
+            if (current in allBauds) add(current)
+            for (b in allBauds) if (b != current) add(b)
+        }
         val mbcs = listOf(
             Protocol.Mbc.RomOnly, Protocol.Mbc.Mbc1, Protocol.Mbc.Mbc5,
             Protocol.Mbc.Mbc3, Protocol.Mbc.Mbc2, Protocol.Mbc.Rumble,
         )
-        for (baud in bauds) {
+
+        for ((index, baud) in bauds.withIndex()) {
             _ui.update { it.copy(busyLabel = "Auto-detect · $baud baud") }
             appendLog("— $baud baud —")
+
+            // On every baud after the first, give the firmware a beat with the
+            // port closed so any half-consumed packet can time out on-AVR.
+            if (index > 0) kotlinx.coroutines.delay(1500)
+
             try {
                 FtdiTransport.open(ctx, device).use { io ->
                     io.configure(baud)
-                    runCatching { io.writeByte(Protocol.BYTE_END) }
+                    // Spam END bytes so one lands cleanly regardless of framing
+                    // drift while the firmware's UART resyncs to the new bit rate.
+                    repeat(5) {
+                        runCatching { io.writeByte(Protocol.BYTE_END) }
+                        kotlinx.coroutines.delay(60)
+                    }
                     kotlinx.coroutines.delay(300)
                     io.flushInput()
+
                     val flasher = GBFlasher(io, ::appendLog)
                     for (mbc in mbcs) {
                         try {
@@ -256,11 +282,11 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
             } catch (t: Throwable) {
                 appendLog("  · $baud: ${t.message}")
             }
-            kotlinx.coroutines.delay(500)
         }
+
         throw IllegalStateException(
-            "No baud/MBC combination produced a valid Nintendo logo. " +
-                "Unplug and replug the flasher, make sure the cart is seated, then retry."
+            "No baud/MBC combination worked. Reseat the cart, unplug + replug the flasher, " +
+                "then re-run auto-detect. If it still fails, pick a baud manually from the dropdown."
         )
     }
 
