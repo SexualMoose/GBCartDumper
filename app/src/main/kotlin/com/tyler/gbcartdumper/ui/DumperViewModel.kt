@@ -29,7 +29,7 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
         val deviceConnected: Boolean = false,
         val deviceLabel: String = "No flasher detected",
         val deviceSerial: String = "",
-        val baud: Int = 185_000,
+        val baud: Int = 375_000,
         val mbc: Protocol.Mbc = Protocol.Mbc.RomOnly,
         val userOverrodeBaud: Boolean = false,
         val userOverrodeMbc: Boolean = false,
