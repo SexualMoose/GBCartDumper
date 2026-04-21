@@ -16,9 +16,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import com.tyler.gbcartdumper.flasher.FtdiTransport
+import com.tyler.gbcartdumper.ui.AccentState
 import com.tyler.gbcartdumper.ui.DumperScreen
 import com.tyler.gbcartdumper.ui.DumperViewModel
 import com.tyler.gbcartdumper.ui.GBCartDumperTheme
+import androidx.compose.runtime.remember
+import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
 
@@ -57,7 +60,10 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
-            GBCartDumperTheme {
+            // Fresh random accent hue every time the Activity is created —
+            // i.e. every cold open of the app.
+            val accentState = remember { AccentState(initialHue = Random.nextFloat()) }
+            GBCartDumperTheme(accentState = accentState) {
                 DumperScreen(
                     viewModel = vm,
                     onNeedUsbPermission = ::requestUsbPermission,

@@ -142,6 +142,14 @@ class FtdiTransport private constructor(private val port: UsbSerialPort) : AutoC
             return FtdiTransport(port)
         }
 
+        /** FT232R serial number — stable across boots, unique per flasher. Blank string
+         *  on platforms where serial isn't accessible (pre-O apps without permission). */
+        fun serialOf(context: Context, device: UsbDevice): String {
+            val usb = context.getSystemService(Context.USB_SERVICE) as UsbManager
+            if (!usb.hasPermission(device)) return ""
+            return runCatching { device.serialNumber ?: "" }.getOrDefault("")
+        }
+
         /** Find the first FTDI-class device currently attached. */
         fun findDevice(context: Context): UsbDevice? {
             val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager

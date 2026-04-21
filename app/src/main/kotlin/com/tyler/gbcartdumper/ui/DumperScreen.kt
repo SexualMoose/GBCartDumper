@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -34,6 +35,8 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -41,6 +44,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -51,10 +56,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -85,18 +90,35 @@ fun DumperScreen(
     val state by viewModel.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val accent = LocalAccentState.current
+
+    /** Run [block] after nudging the accent to a fresh random hue. */
+    fun shuffled(block: () -> Unit): () -> Unit = {
+        accent.shuffle()
+        block()
+    }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
-        if (uri != null) onFolderPicked(uri)
+        if (uri != null) {
+            accent.shuffle()
+            onFolderPicked(uri)
+        }
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("GB Cart Dumper", style = MaterialTheme.typography.titleLarge) },
-                colors = TopAppBarDefaults.topAppBarColors(
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        "GB Cart Dumper",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
                 )
@@ -115,22 +137,23 @@ fun DumperScreen(
             DeviceStatusCard(
                 connected = state.deviceConnected,
                 label = state.deviceLabel,
-                onRefresh = viewModel::refreshDevicePresence
+                onRefresh = shuffled(viewModel::refreshDevicePresence)
             )
 
             SettingsCard(
                 baud = state.baud,
                 mbc = state.mbc,
                 saveFolderLabel = state.saveFolderLabel,
-                onBaudChange = viewModel::setBaud,
-                onMbcChange = viewModel::setMbc,
-                onPickFolder = { folderPicker.launch(null) },
+                onBaudChange = { accent.shuffle(); viewModel.setBaud(it) },
+                onMbcChange = { accent.shuffle(); viewModel.setMbc(it) },
+                onPickFolder = shuffled { folderPicker.launch(null) },
             )
 
             CartCard(cart = state.cart)
 
             ProgressCard(
                 busy = state.busy,
+                label = state.busyLabel,
                 bytes = state.progressBytes,
                 total = state.progressTotal,
             )
@@ -139,9 +162,11 @@ fun DumperScreen(
                 busy = state.busy,
                 canScan = state.deviceConnected,
                 canDump = state.deviceConnected && state.cart != null && state.saveFolder != null,
-                onScan = { viewModel.scanCart(onNeedUsbPermission) },
-                onDump = { viewModel.dumpRom(onNeedUsbPermission) },
-                onCancel = viewModel::cancel,
+                autoDetectDone = state.autoDetectDone,
+                onScan = shuffled { viewModel.scanCart(onNeedUsbPermission) },
+                onDump = shuffled { viewModel.dumpRom(onNeedUsbPermission) },
+                onForceAutoDetect = shuffled(viewModel::forceAutoDetect),
+                onCancel = shuffled(viewModel::cancel),
             )
 
             if (state.lastDumpName != null) {
@@ -150,15 +175,66 @@ fun DumperScreen(
 
             LogCard(
                 lines = state.log,
-                onCopy = {
+                onCopy = shuffled {
                     val text = viewModel.logAsText()
                     clipboard.setText(AnnotatedString(text))
                     Toast.makeText(context, "Log copied (${state.log.size} lines)", Toast.LENGTH_SHORT).show()
                 },
-                onClear = viewModel::clearLog,
+                onClear = shuffled(viewModel::clearLog),
+            )
+        }
+
+        state.duplicatePrompt?.let { prompt ->
+            DuplicatePromptDialog(
+                prompt = prompt,
+                onSaveAsNew = shuffled(viewModel::confirmDuplicateSaveAsNew),
+                onOverwrite = shuffled(viewModel::confirmDuplicateOverwrite),
+                onDismiss = shuffled(viewModel::dismissDuplicatePrompt),
             )
         }
     }
+}
+
+@Composable
+private fun DuplicatePromptDialog(
+    prompt: DumperViewModel.UiState.DuplicatePrompt,
+    onSaveAsNew: () -> Unit,
+    onOverwrite: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text(if (prompt.identicalContent) "Identical ROM already saved" else "Similar ROM already in folder") },
+        text = {
+            Column {
+                Text("Existing:")
+                Text(prompt.existingName, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace))
+                Spacer(Modifier.height(8.dp))
+                Text("New dump will be saved as:")
+                Text(prompt.proposedName, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace))
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (prompt.identicalContent)
+                        "Contents are byte-for-byte identical. Saving again will just leave a duplicate timestamped copy."
+                    else
+                        "Contents differ from the existing file. Overwriting will delete the older dump.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSaveAsNew) { Text("Save as new") }
+        },
+        dismissButton = {
+            Row {
+                OutlinedButton(onClick = onOverwrite) { Text("Overwrite") }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable
@@ -310,13 +386,25 @@ private fun CartCard(cart: DumperViewModel.UiState.CartInfo?) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (!c.supportStatus.usable) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            c.supportMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ProgressCard(busy: Boolean, bytes: Long, total: Long) {
+private fun ProgressCard(busy: Boolean, label: String, bytes: Long, total: Long) {
     val showing = busy || (total > 0 && bytes in 1..<total)
     AnimatedVisibility(showing, enter = fadeIn(), exit = fadeOut()) {
         Card(
@@ -325,16 +413,25 @@ private fun ProgressCard(busy: Boolean, bytes: Long, total: Long) {
             shape = RoundedCornerShape(18.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (label.isNotBlank()) {
+                    Text(label, style = MaterialTheme.typography.titleMedium)
+                }
                 val frac = if (total > 0) (bytes.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
-                LinearProgressIndicator(
-                    progress = { frac },
-                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                )
-                Text(
-                    "${bytes / 1024} / ${total / 1024} KiB  (${(frac * 100).toInt()} %)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (total > 0) {
+                    LinearProgressIndicator(
+                        progress = { frac },
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    )
+                    Text(
+                        "${bytes / 1024} / ${total / 1024} KiB  (${(frac * 100).toInt()} %)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    )
+                }
             }
         }
     }
@@ -345,37 +442,53 @@ private fun ActionRow(
     busy: Boolean,
     canScan: Boolean,
     canDump: Boolean,
+    autoDetectDone: Boolean,
     onScan: () -> Unit,
     onDump: () -> Unit,
+    onForceAutoDetect: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        FilledTonalButton(
-            onClick = onScan,
-            enabled = !busy && canScan,
-            modifier = Modifier.weight(1f),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Filled.Search, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Scan cart")
-        }
-        Button(
-            onClick = onDump,
-            enabled = !busy && canDump,
-            modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-        ) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Dump ROM")
-        }
-        if (busy) {
-            FilledTonalButton(onClick = onCancel) {
-                Icon(Icons.Filled.Close, contentDescription = null)
+            FilledTonalButton(
+                onClick = onScan,
+                enabled = !busy && canScan,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Filled.Search, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Scan cart")
             }
+            Button(
+                onClick = onDump,
+                enabled = !busy && canDump,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Dump ROM")
+            }
+            if (busy) {
+                FilledTonalButton(onClick = onCancel) {
+                    Icon(Icons.Filled.Close, contentDescription = null)
+                }
+            }
+        }
+        OutlinedButton(
+            onClick = onForceAutoDetect,
+            enabled = !busy && canScan,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Filled.AutoFixHigh, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(if (autoDetectDone) "Re-run auto-detect" else "Auto-detect on next scan")
         }
     }
 }

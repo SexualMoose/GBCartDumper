@@ -1,18 +1,62 @@
+<!--
+  Top-down silhouette of a classic DMG Game Boy cartridge:
+  rectangular body with the trademark notch cut from the top-right corner.
+  Adaptive-icon safe zone is the centred 66dp circle in a 108dp viewport;
+  the cart sits inside that so the launcher's circular/squircle mask
+  never clips it.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Body of the cartridge. The top-right corner is notched: the outline
+         goes right along the top, steps down, steps right, then continues.
+         Coordinates chosen so the whole cart lives inside the 66dp safe zone
+         (x 21..87, y 21..87). -->
     <path
         android:fillColor="#9CCC65"
-        android:pathData="M34,30h40a8,8 0,0 1,8 8v40a8,8 0,0 1,-8 8h-40a8,8 0,0 1,-8 -8v-40a8,8 0,0 1,8 -8z" />
+        android:pathData="
+            M 30,24
+            L 66,24
+            L 66,32
+            L 78,32
+            L 78,84
+            Q 78,88 74,88
+            L 34,88
+            Q 30,88 30,84
+            Z" />
+
+    <!-- Paper label inset -->
     <path
         android:fillColor="#0B0E13"
-        android:pathData="M40,44h28v18h-28z" />
+        android:pathData="
+            M 37,40
+            L 71,40
+            Q 73,40 73,42
+            L 73,66
+            Q 73,68 71,68
+            L 37,68
+            Q 35,68 35,66
+            L 35,42
+            Q 35,40 37,40 Z" />
+
+    <!-- Three horizontal text lines on the label -->
     <path
         android:fillColor="#9CCC65"
-        android:pathData="M44,48h20v10h-20z" />
+        android:pathData="
+            M 39,46 L 69,46 L 69,49 L 39,49 Z
+            M 39,52 L 63,52 L 63,55 L 39,55 Z
+            M 39,58 L 66,58 L 66,61 L 39,61 Z" />
+
+    <!-- Finger-grip ridges at the bottom (below the label) -->
     <path
         android:fillColor="#0B0E13"
-        android:pathData="M42,68h6v4h-6z M52,68h4v4h-4z M60,68h6v4h-6z" />
+        android:pathData="
+            M 40,74 L 44,74 L 44,82 L 40,82 Z
+            M 47,74 L 51,74 L 51,82 L 47,82 Z
+            M 54,74 L 58,74 L 58,82 L 54,82 Z
+            M 61,74 L 65,74 L 65,82 L 61,82 Z
+            M 68,74 L 72,74 L 72,82 L 68,82 Z" />
 </vector>
