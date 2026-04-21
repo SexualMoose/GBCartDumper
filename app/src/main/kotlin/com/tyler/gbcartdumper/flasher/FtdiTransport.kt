@@ -31,36 +31,75 @@ class FtdiTransport private constructor(private val port: UsbSerialPort) : AutoC
         port.write(buf, WRITE_TIMEOUT_MS)
     }
 
-    /** Block until exactly [n] bytes arrive or [deadlineMs] elapses. */
+    /**
+     * Block until exactly [n] bytes arrive (or [deadlineMs] elapses).
+     *
+     * Note: usb-serial-for-android's FT232 driver strips the 2-byte FTDI modem-status
+     * prefix in-place, so the destination buffer MUST be larger than 2 bytes. We always
+     * use an oversized staging buffer and copy what we need out of it.
+     */
     suspend fun readExact(n: Int, deadlineMs: Long = READ_DEADLINE_MS): ByteArray = withContext(Dispatchers.IO) {
         val out = ByteArray(n)
-        val tmp = ByteArray(n)
+        val tmp = ByteArray(STAGING_BUF)  // must be > 2 to satisfy FtdiSerialPort
+        // Bytes we've already received but haven't returned yet (in case an inbound
+        // USB packet straddles the requested boundary).
+        var leftover = carry
+        var carryLen = carryUsed
         var got = 0
         val end = System.currentTimeMillis() + deadlineMs
         while (got < n) {
+            if (carryLen > 0) {
+                val take = (n - got).coerceAtMost(carryLen)
+                System.arraycopy(leftover, 0, out, got, take)
+                got += take
+                if (take < carryLen) {
+                    System.arraycopy(leftover, take, leftover, 0, carryLen - take)
+                }
+                carryLen -= take
+                continue
+            }
             if (System.currentTimeMillis() > end) {
+                carry = leftover; carryUsed = carryLen
                 throw java.io.IOException("Timeout waiting for $n bytes (got $got)")
             }
             val r = port.read(tmp, SHORT_READ_TIMEOUT_MS)
             if (r > 0) {
-                System.arraycopy(tmp, 0, out, got, r.coerceAtMost(n - got))
-                got += r
+                val take = (n - got).coerceAtMost(r)
+                System.arraycopy(tmp, 0, out, got, take)
+                got += take
+                val extra = r - take
+                if (extra > 0) {
+                    if (extra > leftover.size) leftover = ByteArray(extra.coerceAtLeast(STAGING_BUF))
+                    System.arraycopy(tmp, take, leftover, 0, extra)
+                    carryLen = extra
+                }
             } else if (r < 0) {
+                carry = leftover; carryUsed = carryLen
                 throw java.io.IOException("USB read error")
             }
-            if (Thread.interrupted()) throw CancellationException()
+            if (Thread.interrupted()) {
+                carry = leftover; carryUsed = carryLen
+                throw CancellationException()
+            }
         }
+        carry = leftover; carryUsed = carryLen
         out
     }
 
     /** Discard anything already in the OS-side FTDI buffer. Called before each transaction. */
     suspend fun flushInput() = withContext(Dispatchers.IO) {
-        val tmp = ByteArray(256)
-        val end = System.currentTimeMillis() + 50
+        carryUsed = 0
+        val tmp = ByteArray(STAGING_BUF)
+        val end = System.currentTimeMillis() + 80
         while (System.currentTimeMillis() < end) {
             if (port.read(tmp, 20) <= 0) break
         }
     }
+
+    // Carry-over buffer so an oversized read from the USB layer doesn't drop bytes
+    // the caller didn't ask for this turn.
+    private var carry: ByteArray = ByteArray(STAGING_BUF)
+    private var carryUsed: Int = 0
 
     override fun close() {
         runCatching { port.close() }
@@ -69,6 +108,7 @@ class FtdiTransport private constructor(private val port: UsbSerialPort) : AutoC
     companion object {
         private const val WRITE_TIMEOUT_MS = 2000
         private const val SHORT_READ_TIMEOUT_MS = 200
+        private const val STAGING_BUF = 256  // > 2 is required by FtdiSerialPort
         const val READ_DEADLINE_MS = 5000L
 
         /** True if [device] is an FTDI FT232R — the chip inside the rev.c flasher. */
