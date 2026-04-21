@@ -60,15 +60,28 @@ class GBFlasher(private val io: FtdiTransport, private val log: (String) -> Unit
             }
         }.trim()
 
+        // Dump first 40 bytes of the status response so we can see what the
+        // firmware actually populated — invaluable when cart detection goes wrong.
+        log("STATUS raw: " + resp.sliceArray(0 until 40).joinToString(" ") { "%02X".format(it.toInt() and 0xFF) })
+
         Status(
-            manufacturerId = resp[2].toInt() and 0xFF,
-            chipId = resp[3].toInt() and 0xFF,
+            manufacturerId = resp[4].toInt() and 0xFF,
+            chipId = resp[5].toInt() and 0xFF,
             gameName = name,
-            cartType = resp[25].toInt() and 0xFF,
-            romSizeCode = resp[26].toInt() and 0xFF,
-            ramSizeCode = resp[27].toInt() and 0xFF,
+            cartType = resp[28].toInt() and 0xFF,
+            romSizeCode = resp[29].toInt() and 0xFF,
+            ramSizeCode = resp[30].toInt() and 0xFF,
             raw = resp
         )
+    }
+
+    /** Given the ROM size byte from the cart header / STATUS, return the bank count. */
+    fun romBanksFromSizeCode(code: Int): Int = when (code) {
+        in 0x00..0x08 -> 2 shl code
+        0x52 -> 72
+        0x53 -> 80
+        0x54 -> 96
+        else -> 2
     }
 
     /**

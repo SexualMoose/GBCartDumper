@@ -95,10 +95,20 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
                     val flasher = GBFlasher(io, ::appendLog)
                     appendLog("Querying cartridge (STATUS)...")
                     val status = flasher.readStatus(_ui.value.mbc.code)
-                    appendLog("Flasher replied: \"${status.gameName}\" type=0x${"%02X".format(status.cartType)} ROM=0x${"%02X".format(status.romSizeCode)}")
+                    appendLog(
+                        "Flasher → name=\"${status.gameName}\" type=0x${"%02X".format(status.cartType)} " +
+                            "ROM=0x${"%02X".format(status.romSizeCode)} RAM=0x${"%02X".format(status.ramSizeCode)} " +
+                            "mfr=0x${"%02X".format(status.manufacturerId)} chip=0x${"%02X".format(status.chipId)}"
+                    )
 
-                    // Grab bank 0 (32 KiB) to parse the real cart header.
-                    appendLog("Reading bank 0 to confirm cart header...")
+                    if (status.gameName.isBlank() && status.cartType == 0 && status.romSizeCode == 0) {
+                        appendLog("⚠ Flasher couldn't read the cart. Likely causes: cart not seated, dirty pins, or weak USB-C power. Reseat the cart and try again.")
+                        _ui.update { it.copy(busy = false) }
+                        return@launch
+                    }
+
+                    // Grab bank 0 (32 KiB) to confirm the cart header and pick an accurate MBC.
+                    appendLog("Reading bank 0 to parse header...")
                     val bank0 = flasher.readRom(_ui.value.mbc.code, romBanks = 2) { read, total ->
                         _ui.update { it.copy(progressBytes = read.toLong(), progressTotal = total.toLong()) }
                     }
@@ -113,7 +123,7 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
                         headerOk = header.headerChecksumOk,
                     )
                     _ui.update { it.copy(cart = info) }
-                    appendLog("Detected: ${info.title} · ${info.mbc.label} · ${info.romBytes / 1024} KiB · header checksum ${if (header.headerChecksumOk) "OK" else "BAD"}")
+                    appendLog("Header: ${info.title} · ${info.mbc.label} · ${info.romBytes / 1024} KiB · checksum ${if (header.headerChecksumOk) "OK" else "BAD"}")
                 }
             } catch (t: Throwable) {
                 appendLog("Scan failed: ${t.message}")
