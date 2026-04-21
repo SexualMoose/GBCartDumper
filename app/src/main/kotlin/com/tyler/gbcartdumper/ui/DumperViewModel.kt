@@ -98,24 +98,11 @@ class DumperViewModel(app: Application) : AndroidViewModel(app) {
                 FtdiTransport.open(ctx, device).use { io ->
                     io.configure(_ui.value.baud)
                     val flasher = GBFlasher(io, ::appendLog)
-                    appendLog("Querying cartridge (STATUS)...")
-                    val status = try {
-                        flasher.readStatus(_ui.value.mbc.code)
-                    } catch (t: Throwable) {
-                        appendLog("STATUS failed (${t.message}) — continuing with direct bank-0 read.")
-                        null
-                    }
-                    if (status != null) {
-                        appendLog(
-                            "STATUS → name=\"${status.gameName}\" type=0x${"%02X".format(status.cartType)} " +
-                                "ROM=0x${"%02X".format(status.romSizeCode)} RAM=0x${"%02X".format(status.ramSizeCode)}"
-                        )
-                    }
-
-                    // STATUS is unreliable on plain MASKROM carts — the firmware's flash-ID
-                    // probe fails and the header fields come back as zeros even though the
-                    // cart bus is fine. Source of truth is a direct bank-0 read and the
-                    // cart's own header bytes.
+                    // STATUS is purely informational and the firmware actually wedges
+                    // into a bad state on MASKROM carts — any subsequent CONFIG gets
+                    // NAK'd repeatedly. Our PC probe scripts proved CONFIG+RROM works
+                    // when called fresh, so we go straight there. Cart header comes
+                    // from bank 0 bytes 0x0100–0x014F, which is always authoritative.
                     appendLog("Reading bank 0 to parse header...")
                     val bank0 = readBank0WithFallback(flasher)
                     val header = CartHeader.parse(bank0)
