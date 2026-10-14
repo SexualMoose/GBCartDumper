@@ -1,0 +1,31 @@
+# Line endings: LF in the repository and in every checkout, whatever core.autocrlf says.
+# Without this, a Windows checkout or the Petrichor publish lane can flip files (including
+# gradlew) to CRLF, which breaks ./gradlew and shell scripts on the Mac and on Linux CI.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF in the working tree (stored as LF in the repository).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files: never convert line endings and never show text diffs.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.jar binary
+*.so binary
+*.onnx binary
+*.tflite binary
+*.bin binary
+*.ser binary
+*.zip binary
+*.pdf binary
+*.docx binary
+*.ttf binary
+*.otf binary
+*.jks binary
+*.keystore binary
