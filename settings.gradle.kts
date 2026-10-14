@@ -18,7 +18,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") }
+        // JitPack builds arbitrary GitHub repos on demand, so only the one group that needs it may
+        // resolve from it (AUD-009); everything else must come from Google or Maven Central.
+        maven {
+            url = uri("https://jitpack.io")
+            content { includeGroup("com.github.mik3y") }   // usb-serial-for-android
+        }
     }
 }
 
