@@ -48,7 +48,7 @@ App (Gradle, declared in `gradle/libs.versions.toml`):
 
 Build plugins: AGP 8.7.3 (Apache-2.0), Kotlin Android / Kotlin Compose plugins 2.1.0 (Apache-2.0). Gradle Wrapper scripts and jar are bundled in the repo (Apache-2.0, see `THIRD-PARTY.md`).
 
-Repositories: `google()`, `mavenCentral()`, plus `https://jitpack.io`, which is needed for usb-serial-for-android (`settings.gradle.kts`).
+Repositories: `google()`, `mavenCentral()`, plus `https://jitpack.io`, which is needed for usb-serial-for-android and is restricted to that one group with `content { includeGroup("com.github.mik3y") }` (`settings.gradle.kts`), so nothing else can resolve from JitPack.
 
 Python tools: `pyserial` — BSD-3-Clause.
 
