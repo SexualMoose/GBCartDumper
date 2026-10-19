@@ -2,7 +2,7 @@
 
 Android app that dumps Game Boy / Game Boy Color cartridge ROMs to `.gb` / `.gbc` files by driving a jrodrigo "GB Cart Flasher rev.c" plugged into the phone over USB-C OTG.
 
-_Last audited: 2026-10-10 against main @ 3c18006._
+_Last audited: 2026-10-10 against main @ 3c18006; updated 2026-10-19 for **1.0.3 (versionCode 4)**, FleetReporter (branch `fleet-reporter`)._
 
 ## Overview / Purpose
 
@@ -15,7 +15,7 @@ Not implemented: save-RAM (SRAM) read/write, flash writing, and erase. The proto
 
 ## Status
 
-**Working, dormant.** Per the commit history, the protocol and UI were developed and tested on-device; this audit did not re-test on hardware. No code has changed since mid-2026. Evidence:
+**Working.** Per the commit history, the protocol and UI were developed and tested on-device; this audit did not re-test on hardware. 1.0.3 (versionCode 4, 2026-10-19) adds FleetReporter (see Crash and error reports); before that, no code had changed since mid-2026. Evidence:
 - 17 commits on `main` (origin/main == HEAD `3c18006`). There are no other branches and no tags.
 - Development: 14 commits on 2026-04-21 (initial commit through "Default baud 375000"). Their messages describe on-device fixes for MASKROM carts, the baud sweep, FT232 buffer sizing and firmware-wedge recovery.
 - 2026-06-04 `71ee554`: new launcher icon, version 1.0.1 (vc2). 2026-06-25 `5d7f9a9`: migration to the fleet release key and a version bump to **1.0.2 (versionCode 3)**. 2026-06-27 `3c18006`: generated documentation.
@@ -26,7 +26,7 @@ Not implemented: save-RAM (SRAM) read/write, flash writing, and erase. The proto
 - Languages: Kotlin (app), Python 3.8+ (development probe tools only; they call `bytes.hex(sep)`, added in 3.8).
 - Build tooling: Android Gradle Plugin 8.7.3, Gradle 8.11.1 (wrapper), Kotlin 2.1.0 (with the Kotlin Compose compiler plugin 2.1.0). JDK 17 (`sourceCompatibility`/`targetCompatibility`/`jvmTarget` = 17).
 - Android SDK: compileSdk 35 / targetSdk 35, minSdk 29 (Android 10+).
-- App identity: `applicationId` / `namespace` = `com.tyler.gbcartdumper`, versionName `1.0.2`, versionCode `3`.
+- App identity: `applicationId` / `namespace` = `com.tyler.gbcartdumper`, versionName `1.0.3`, versionCode `4`.
 - IDE: Android Studio Ladybug or newer (needed for AGP 8.7). You can also build from the command line with an Android SDK 35 install.
 - Hardware: an Android device with USB host (OTG) support (`android.hardware.usb.host` is declared `required="true"`). You also need a jrodrigo GB Cart Flasher rev.c (FTDI FT232R, USB VID 0x0403 / PID 0x6001) and a GB/GBC cartridge.
 - Accounts/keys: none are needed to build a debug APK. There is no signing config in this repo; release signing happens outside it (see Build & Run).
@@ -101,6 +101,8 @@ python3 tools/sweep_pc.py [PORT]                    # baud x MBC matrix, incl. o
 
 ## Architecture
 
+App entry: `GBCartDumperApp.kt` (the Application class, registered with `android:name` in the manifest) installs `fleet/FleetReporter.kt`; see Crash and error reports (FleetReporter).
+
 UI layer (Jetpack Compose, single-activity MVVM):
 - `MainActivity.kt` — hosts the Compose UI and keeps the screen on. It handles the USB-attach intent (`singleTask`), requests USB permission through a package-scoped `PendingIntent`, and registers runtime receivers for the permission result and for USB attach/detach. It also takes the persistable SAF folder permission.
 - `ui/DumperScreen.kt` — the single screen: device-status card, auto-detect button, Settings card (baud dropdown, MBC dropdown, save-folder picker), cart card, progress card, Scan / Dump / Cancel row, last-dump card, log card (copy/clear), and the duplicate-ROM dialog.
@@ -122,11 +124,21 @@ PC tools (`tools/`): `probe_pc.py`, `probe_pc_rrom.py`, `sweep_pc.py` — standa
 
 ## Integrations & Interconnects
 
-- Hardware: jrodrigo GB Cart Flasher rev.c (ATmega8515 MCU + FTDI FT232RL USB-to-serial bridge). This is the only external system the app talks to, over local USB serial with no network.
+- Hardware: jrodrigo GB Cart Flasher rev.c (ATmega8515 MCU + FTDI FT232RL USB-to-serial bridge). This is the only external device the app talks to, over local USB serial with no network.
+- FleetGuardian (same phone): `fleet/FleetReporter.kt` sends crash, freeze, error and warning reports to FleetGuardian's health provider (`content://com.sexualmoose.fleetguardian.health`, `report_issue`; no network). See Crash and error reports (FleetReporter).
 - Library: mik3y/usb-serial-for-android (from GitHub via JitPack) provides the FT232R USB-serial driver.
-- Owner's fleet tooling: distributed builds are produced and signed outside this repo by the owner's self-hosted fleet pipeline (details live outside this repo and are unverified here). The app contains **no** fleet client code: no fleet app key, no self-reporting, no self-update, no network calls.
+- Owner's fleet tooling: distributed builds are produced and signed outside this repo by the owner's self-hosted fleet pipeline (details live outside this repo and are unverified here). Apart from FleetReporter, the app contains **no** fleet client code: no fleet app key, no self-update, no network calls.
 - Protocol knowledge comes from the original jrodrigo rev.c firmware, Nold360/gbcflsh (Qt host) and Tauwasser/GBCartFlasher (firmware rewrite), all credited in the README. Header layout follows the Pan Docs cartridge-header reference cited in `CartHeader.kt`.
-- No cloud services, APIs, telemetry or analytics. The app requests no permissions at all; the manifest only declares the USB-host feature.
+- No cloud services, APIs or analytics; crash and error reports go only to FleetGuardian on the same phone. The app requests no permissions at all; the manifest declares only the USB-host feature and a `<queries>` entry for FleetGuardian's provider.
+
+## Crash and error reports (FleetReporter)
+
+- **File:** `app/src/main/kotlin/com/tyler/gbcartdumper/fleet/FleetReporter.kt` (a copy of FleetGuardian's `docs/fleet-reporter/FleetReporter.kt`), installed in `GBCartDumperApp.onCreate()`. `GBCartDumperApp` was added for this and is registered on `<application>`; the manifest's `<queries>` entry lets the app see FleetGuardian's provider.
+- **What it reports:** crashes, freezes (ANR: main thread blocked over 5 s) and errors/warnings the app logs on purpose (`FleetReporter.error()` / `warn()`; the app has no call sites yet) to FleetGuardian on the same phone, over its content provider: no network and no permission.
+- **Where they go:** FleetGuardian forwards them to the Jarvis server's Reports, and a fatal one (crash, ANR, crash loop, failing to start) can start an automatic fix.
+- **Privacy:** text is redacted (emails, tokens, secrets such as `password=` values, long hex/base64 runs) before it leaves the app. Only the app's own logcat lines are included; no ROM data, files or device ids are sent.
+- **Without FleetGuardian 0.3.0+ on the phone:** reports wait in a queue of at most 50 (`filesDir/fleetreporter/queue`) and are resent at the next start; nothing else changes.
+- Spec: FleetGuardian `docs/fleet-reporter/README.md` (dev hub contract section 6).
 
 ## Configuration & Secrets
 
@@ -159,7 +171,6 @@ PC tools (`tools/`): `probe_pc.py`, `probe_pc_rrom.py`, `sweep_pc.py` — standa
 - A global-checksum mismatch or a suspected MBC1 multicart only logs a warning; the dump is saved anyway.
 - `GBFlasher.readStatus()` is dead code since STATUS was removed from the scan flow.
 - Unused resources: `app/src/main/res/drawable-nodpi/splash.png` (~1.9 MB, unreferenced, added by the icon-regeneration commit) is still packaged in the APK because resource shrinking is off. `app/src/main/res/drawable/ic_launcher_foreground.xml` (a floppy-disk vector) is also unreferenced. The adaptive icon now uses the `mipmap-*/ic_launcher_foreground.png` rasters.
-- The committed `PROJECT-DOCUMENTATION.docx` predates this revision and contradicts it in places (status, commit count, STATUS in the scan flow, CRC name). Treat this Markdown file as authoritative until the `.docx` is regenerated.
 - Release build has minification disabled and no signing config; it relies on the external fleet pipeline.
 - No tests and no CI.
 
@@ -177,7 +188,7 @@ PC tools (`tools/`): `probe_pc.py`, `probe_pc_rrom.py`, `sweep_pc.py` — standa
 
 ## Security notes
 
-- Trust boundary: the only external peer is the USB-attached FT232R flasher. Bytes from it are treated as untrusted: every packet is CRC-checked, and the bank count is bounded before allocation. There is no network access at all: no INTERNET permission, no HTTP or socket code, no analytics.
+- Trust boundary: the only external peer is the USB-attached FT232R flasher. Bytes from it are treated as untrusted: every packet is CRC-checked, and the bank count is bounded before allocation. There is no network access at all: no INTERNET permission, no HTTP or socket code, no analytics. On the phone itself, FleetReporter hands redacted crash, freeze and error reports to FleetGuardian over its content provider; FleetGuardian forwards them to the Jarvis server.
 - Auth model: no accounts. Access to the flasher is gated by Android's per-device USB permission prompt. File output is gated by the folder the user explicitly picks through SAF.
 - Inbound surfaces: the exported launcher activity (also the target of the FT232R USB-attach filter); a runtime receiver for the USB-permission result (not exported, `RECEIVER_NOT_EXPORTED`), which reads only the granted flag and then refreshes and scans; and an exported runtime receiver (`RECEIVER_EXPORTED`) for the system `USB_DEVICE_ATTACHED`/`USB_DEVICE_DETACHED` broadcasts. Those are protected broadcasts, and that receiver only calls `refreshDevicePresence()`.
 - Data at rest: only non-sensitive baud/MBC preferences in private SharedPreferences; `allowBackup="false"`.
