@@ -3,7 +3,14 @@
 
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
 
+    <!-- Package visibility for FleetGuardian's health provider: crash / freeze / error reports
+         (dev hub contract section 6, FleetReporter.kt). -->
+    <queries>
+        <provider android:authorities="com.sexualmoose.fleetguardian.health" />
+    </queries>
+
     <application
+        android:name=".GBCartDumperApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

@@ -6,8 +6,9 @@ using the **jrodrigo GB Cart Flasher rev.c** plugged straight into the phone's U
 Requires Android 10+ (minSdk 29) on a device with USB host (OTG) support, and the flasher's
 FTDI FT232R chip (VID `0x0403` / PID `0x6001`).
 
-**Status:** working (v1.0.2, versionCode 3); dormant since mid-2026. ROM dumping only, with no
-save-RAM read/write or flashing. Full details are in [PROJECT-DOCUMENTATION.md](PROJECT-DOCUMENTATION.md).
+**Status:** working (v1.0.3, versionCode 4); 1.0.3 adds FleetReporter crash, freeze and error reports, the
+first code change since mid-2026. ROM dumping only, with no save-RAM read/write or flashing. Full details are
+in [PROJECT-DOCUMENTATION.md](PROJECT-DOCUMENTATION.md).
 
 ## How it talks to the flasher
 
@@ -52,6 +53,16 @@ The resulting APK will be in `app/build/outputs/apk/debug/app-debug.apk`.
 4. Tap **Choose** to pick a destination folder (SAF tree picker)
 5. Tap **Scan cart** — the app reads the first 32 KiB (banks 0–1) and parses the cart header (title, MBC, ROM/RAM size, checksum, logo check)
 6. Tap **Dump ROM** — the full ROM is streamed, its global checksum is checked (a mismatch only logs a warning) and it is saved as `<Title>-<yyyyMMdd-HHmmss>.gb[c]`
+
+## Crash and error reports (FleetReporter)
+
+`app/src/main/kotlin/com/tyler/gbcartdumper/fleet/FleetReporter.kt`, installed in `GBCartDumperApp.onCreate()`,
+reports crashes, freezes (ANR: main thread blocked over 5 s) and errors/warnings the app logs on purpose
+(`FleetReporter.error()` / `warn()`; no call sites yet) to FleetGuardian on the same phone, through its content
+provider (no network, no permission). FleetGuardian forwards them to the Jarvis server's Reports, and a fatal one
+can start an automatic fix. Text is redacted (emails, tokens, secrets) before it leaves the app. With no
+FleetGuardian 0.3.0+ on the phone, reports wait in a queue of at most 50 (`filesDir/fleetreporter/queue`) and
+nothing else changes. Spec: FleetGuardian `docs/fleet-reporter/README.md`.
 
 ## License
 
