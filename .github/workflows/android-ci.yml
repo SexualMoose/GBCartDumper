@@ -3,10 +3,8 @@ name: Android CI
 # Fleet Android CI (I-FW-005 / I-FW-027). This file is identical in every fleet Android repo except
 # the `env:` block, so it can later be replaced by a ~10-line caller of one shared reusable workflow.
 
+# Manual-only since 2026-10-20: builds and tests run locally (PETRICHOR; the Mac for iOS). Start it from the Actions tab.
 on:
-  push:
-    branches: [main, master]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
