@@ -56,6 +56,8 @@ The resulting APK will be in `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Crash and error reports (FleetReporter)
 
+**FleetReporter 1.1** (1.0.4, versionCode 5, 2026-10-20): The freeze watchdog runs only while the app is on screen; on Android 11+ the freezes and native crashes it misses arrive from Android's exit records at the next start; reports go only to FleetGuardian signed with the fleet release key; UUIDs and MAC addresses are redacted; and each queued report is sent by exactly one process. Details: FleetGuardian `docs/fleet-reporter/README.md`.
+
 `app/src/main/kotlin/com/tyler/gbcartdumper/fleet/FleetReporter.kt`, installed in `GBCartDumperApp.onCreate()`,
 reports crashes, freezes (ANR: main thread blocked over 5 s) and errors/warnings the app logs on purpose
 (`FleetReporter.error()` / `warn()`; no call sites yet) to FleetGuardian on the same phone, through its content

@@ -133,6 +133,8 @@ PC tools (`tools/`): `probe_pc.py`, `probe_pc_rrom.py`, `sweep_pc.py` — standa
 
 ## Crash and error reports (FleetReporter)
 
+**FleetReporter 1.1** (1.0.4, versionCode 5, 2026-10-20): The freeze watchdog runs only while the app is on screen; on Android 11+ the freezes and native crashes it misses arrive from Android's exit records at the next start; reports go only to FleetGuardian signed with the fleet release key; UUIDs and MAC addresses are redacted; and each queued report is sent by exactly one process. Details: FleetGuardian `docs/fleet-reporter/README.md`.
+
 - **File:** `app/src/main/kotlin/com/tyler/gbcartdumper/fleet/FleetReporter.kt` (a copy of FleetGuardian's `docs/fleet-reporter/FleetReporter.kt`), installed in `GBCartDumperApp.onCreate()`. `GBCartDumperApp` was added for this and is registered on `<application>`; the manifest's `<queries>` entry lets the app see FleetGuardian's provider.
 - **What it reports:** crashes, freezes (ANR: main thread blocked over 5 s) and errors/warnings the app logs on purpose (`FleetReporter.error()` / `warn()`; the app has no call sites yet) to FleetGuardian on the same phone, over its content provider: no network and no permission.
 - **Where they go:** FleetGuardian forwards them to the Jarvis server's Reports, and a fatal one (crash, ANR, crash loop, failing to start) can start an automatic fix.
